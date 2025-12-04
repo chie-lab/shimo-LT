@@ -1,0 +1,77 @@
+name: Deploy Marp Slides to GitHub Pages
+
+on:
+  # mainブランチへのpush時にワークフローを実行
+  push:
+    branches:
+      - main
+  # Actionsタブから手動で実行することも可能にする
+  workflow_dispatch:
+
+# ワークフローの権限設定
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. リポジトリのコードをチェックアウト
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. Node.js環境をセットアップ
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 3. Marp CLIをインストール
+      - name: Install Marp CLI
+        run: npm install -g @marp-team/marp-cli
+
+      # 4. Marpドキュメントをビルドし、目次ページを生成
+      - name: Build and Create Index
+        run: |
+          # 出力用のディレクトリを作成
+          mkdir public
+
+          # 'documents' ディレクトリ内の全 .md ファイルをHTMLに変換し、'public/documents' に出力
+          # --allow-local-files オプションでローカル画像（images/**）の読み込みを許可
+          marp --html --input-dir documents --output public/documents --allow-local-files
+
+          # 'images' ディレクトリが存在すれば、'public' ディレクトリにコピー
+          if [ -d "images" ]; then
+            cp -r images public/
+          fi
+
+          # スライド一覧の目次 (index.html) を作成
+          echo "<html><head><title>Slides Index</title><meta charset='UTF-8'></head><body>" > public/index.html
+          echo "<h1>Slides Index</h1><ul>" >> public/index.html
+          # public/documents 内の全HTMLファイルへのリンクを生成
+          find public/documents -name "*.html" | sed 's|public/||' | while read file; do
+            echo "<li><a href=\"${file}\">${file}</a></li>" >> public/index.html
+          done
+          echo "</ul></body></html>" >> public/index.html
+          echo "Generated index.html:"
+          cat public/index.html
+
+      # 5. ビルド成果物をアーティファクトとしてアップロード
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './public'
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      # 6. アーティファクトをGitHub Pagesにデプロイ
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
